@@ -1,0 +1,36 @@
+---
+title: "HW1_Applied_Statistics"
+author: "Violetta Konygina"
+date: "30 03 2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+```
+
+Generate random dots
+```{r}
+n <- 1e6
+x <- runif(n, min =  -pi/2, max = pi/2)
+y <- runif(n, min = -pi, max = 1)
+```
+
+Define the function:
+
+```{r}
+function_area <- 2*abs(x) - pi - y <= 0 & abs(sin(2*x)) - y >= 0
+```
+
+Plot the generated dots. Let's find the blue area
+```{r}
+points <- data.frame(x, y)
+ggplot(points) +
+    geom_point(aes(x = x, y = y, color = function_area), size = 0.5) 
+```
+
+To calculate the required area - find the mean number of dots which are within figure and multiply by the are of rectangle (1 + pi) * (pi/2 + pi/2)
+```{r}
+mean(function_area) * (1 + pi) * (pi/2 + pi/2)
+```
