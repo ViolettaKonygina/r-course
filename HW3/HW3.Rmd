@@ -1,0 +1,202 @@
+---
+title: "HW3"
+author: "Violetta Konygina"
+date: "07/06/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, results='hide'}
+library("RIdeogram")
+library("dplyr")
+library("tidyr")
+```
+
+## 1. Read data
+```{r}
+dongola <- read.csv("DONGOLA_genes.tsv", sep='\t')
+zanu <- read.csv("ZANU_genes.tsv", sep='\t')
+gene_mapping <- read.csv('gene_mapping.tsv', sep='\t')
+```
+
+### 1.1. Gene mapping table
+```{r}
+head(gene_mapping)
+```
+### 1.2. Zanu table
+```{r}
+head(zanu)
+```
+### 1.3. Dongola table
+```{r}
+head(dongola)
+```
+## 2. Correction gene mapping table
+
+### 2.1. Creating data frame from column DONG and then combining it with gene mapping
+```{r}
+dong <- data.frame(x = do.call('rbind', strsplit(as.character(gene_mapping$DONG), ',', fixed=TRUE)))
+colnames(dong) <- c('seq_id','middle_coord','strand_d','gene_length','gene_name')
+```
+
+```{r}
+gene_mapping <- cbind(gene_mapping[0:6],dong)
+head(gene_mapping)
+```
+Choose in contig column only 2, 3, X chromosomes
+```{r}
+gene_mapping <- gene_mapping[gene_mapping$contig %in% c('2', '3', 'X'),]
+```
+
+### 2.2. Perform mapping between chromosomes names and sequence IDs
+From NCBI genome database:
+Chr 2 - NC_053517.1
+Chr 3 - NC_053518.1	
+Chr X - NC_053519.1
+
+```{r}
+gene_mapping$seq_id[gene_mapping$seq_id == 'NC_053517.1'] <- '2'
+gene_mapping$seq_id[gene_mapping$seq_id == 'NC_053518.1'] <- '3'
+gene_mapping$seq_id[gene_mapping$seq_id == 'NC_053519.1'] <- 'X'
+head(gene_mapping)
+```
+Choose only 2, 3, X chromosomes in DONGOLA
+```{r}
+gene_mapping <- gene_mapping[gene_mapping$seq_id %in% c('2', '3', 'X'),]
+```
+
+### 2.3. Editing gene_name column
+
+remove DONG_ in the gene_name
+```{r}
+gene_mapping$gene_name <- as.character(lapply(gene_mapping$gene_name, gsub, pattern = '^DONG_', replacement =""))
+head(gene_mapping)
+```
+
+## 3. Distance calculation
+```{r}
+gene_mapping$distance <- abs(gene_mapping$middle.position - as.numeric(gene_mapping$middle_coord))
+```
+
+Leave only same chromosomes between ZANU and DONGOLA
+```{r}
+gene_mapping<-subset(gene_mapping, contig==seq_id)
+```
+
+## 4. Mapping between ZANU and DONGOLA genes
+
+```{r}
+dong_map<-data.frame()
+for (i in unique(gene_mapping$gene_name)){
+  row_coll <- gene_mapping[gene_mapping$gene_name == i, ]
+  min_count <- min(row_coll$distance)
+  dong_map <- rbind(dong_map,row_coll[row_coll$distance == min_count, ])
+}
+dong_map <- dong_map[order(dong_map$distance),]
+```
+
+```{r}
+zanu_map<-data.frame()
+for (i in unique(dong_map$name)){
+  row_coll <- dong_map[dong_map$name == i, ]
+  min_count <- min(row_coll$distance)
+  zanu_map <- rbind(zanu_map,row_coll[row_coll$distance == min_count, ])
+}
+final_mapping <- zanu_map[order(zanu_map$distance),]
+head(final_mapping)
+```
+
+## 5. Synteny table
+
+```{r}
+dongola_chr_2_end = 111988354
+dongola_chr_3_end = 95710210 
+dongola_chr_X_end = 26913133 
+```
+
+```{r}
+final_mapping$contig[final_mapping$contig == "X"] <- 1
+final_mapping$seq_id[final_mapping$seq_id == "X"] <- 1
+
+blue = "77dde7"
+red = "ff5349"
+
+start_zanu <- c()
+end_zanu <- c()
+fill <- c()
+for (i in (1:nrow(final_mapping))){
+    name <- final_mapping[i, "name"]
+    fill <- if (final_mapping[i, "strand"] == final_mapping[i, "strand_d"]) append(fill, red) 
+    else append(fill, blue)
+  start_zanu <- append(start_zanu, zanu[zanu$ID == name, "start"])
+  end_zanu <- append(end_zanu, zanu[zanu$ID == name, "end"])
+}
+```
+
+```{r}
+start_dong <- c()
+end_dong <- c()
+for (i in (1:nrow(final_mapping))){
+    name <- final_mapping[i, "gene_name"]
+    if (final_mapping[i, "contig"] == 1){
+    start <- dongola_chr_X_end - dongola[dongola$ID == name, "start"]
+    end <- dongola_chr_X_end - dongola[dongola$ID == name, "end"]
+    } else if ((final_mapping[i, "contig"] == 2)){
+      start <- dongola_chr_2_end - dongola[dongola$ID == name, "start"]
+      end <- dongola_chr_2_end - dongola[dongola$ID == name, "end"]
+    } else {
+      start <- dongola_chr_3_end - dongola[dongola$ID == name, "start"]
+      end <- dongola_chr_3_end - dongola[dongola$ID == name, "end"]
+    }
+  start_dong <- append(start_dong, start)
+  end_dong <- append(end_dong, end)
+}
+```
+
+
+```{r}
+synteny_table <- data.frame(Species_1 = as.numeric(final_mapping$contig),
+                                        Start_1 = start_zanu, 
+                                        End_1 = end_zanu, 
+                                        Species_2 = as.numeric(final_mapping$seq_id),
+                                        Start_2 = start_dong, End_2 = end_dong, fill = fill)
+head(synteny_table)
+```
+
+## 6. Karyotype table
+
+```{r}
+karyotype_table <- setNames(data.frame(matrix(ncol=7, nrow=0)), c("Chr", "Start", "End", "fill", "species", "size", "color"))
+karyotype_table <- rbind(karyotype_table, data.frame(Chr=c('X','2','3'), 
+                                                     Start=c(1, 1, 1), 
+                                                     End=c(27238055, 114783175, 97973315), 
+                                                     fill='969696', 
+                                                     species='ZANU', size=12, color='252525'))
+karyotype_table
+#karyotype_table <- data.frame(Chr = c('X', '2', '3', 'X', '2', '3'), 
+#  start = rep(1), 
+#  end = c(27238055, 114783175, 97973315, 26913133, 111988354, 95710210), 
+#  fill =  rep(969696), species = c("ZANU", "ZANU", "ZANU", "DONGOLA", "DONGOLA", "DONGOLA"), 
+#  size = rep(12), color = rep(252525))
+#head(karyotype_table)
+```
+```{r}
+karyotype_table <- rbind(karyotype_table, data.frame(Chr=c('X','2','3'), 
+                                                     Start=c(1, 1, 1), 
+                                                     End=c(26913133, 111988354, 95710210), 
+                                                     fill='969696', 
+                                                     species='DONGOLA', size=12, color='252525'))
+karyotype_table
+```
+
+## Plot
+```{r}
+ideogram(karyotype = karyotype_table, synteny = synteny_table)
+convertSVG("chromosome.svg", device = "png")
+```
+
+![](chromosome.png)
